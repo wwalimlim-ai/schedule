@@ -8,51 +8,55 @@ import calendar
 # --- ページ設定 ---
 st.set_page_config(page_title="学生用ツール", layout="centered")
 
-# 【強化版CSS】改行を絶対に許さず、文字サイズをスマホに最適化
+# 【超強力CSS】カレンダーの曜日と時間割の改行を徹底的に防ぐ
 st.markdown("""
     <style>
-    /* 表全体のフォントサイズを調整し、改行を禁止 */
-    .stTable {
-        font-size: 12px !important;
+    /* 画面全体の余白を削る */
+    .main .block-container { padding-top: 1rem; padding-left: 0.5rem; padding-right: 0.5rem; }
+    
+    /* カレンダーの曜日・ボタンの文字サイズと余白 */
+    div[data-testid="column"] {
+        padding: 0 !important;
+        min-width: 0 !important;
     }
+    div.stButton > button {
+        font-size: 12px !important;
+        padding: 0 !important;
+        height: 40px !important;
+        min-width: 0 !important;
+    }
+    
+    /* 曜日ヘッダーの文字を小さくして横に並べる */
+    .stMarkdown p {
+        font-size: 12px !important;
+        text-align: center;
+        margin-bottom: 0px;
+    }
+
+    /* 時間割の表をスマホでも横一行に */
     .stTable td {
         white-space: nowrap !important;
-        padding: 5px !important;
-        min-width: 60px !important;
-    }
-    /* カレンダーのボタンの文字を少し小さくして収まりを良くする */
-    div.stButton > button {
-        font-size: 14px !important;
-        padding: 0px !important;
-        height: 50px !important;
-    }
-    /* 予定がある日の📍や🎌を小さく表示 */
-    div.stButton > button p {
-        line-height: 1.2 !important;
+        font-size: 11px !important;
+        padding: 4px !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 以下、前回のロジックと同じ（ここから下を丸ごと上書きしてください） ---
+# --- 以下、ロジック ---
 
 # Secrets & Data Loading
 correct_pw = st.secrets.get("MY_PASSWORD")
 gas_url = st.secrets.get("GAS_URL")
 sheet_url = st.secrets.get("connections", {}).get("gsheets", {}).get("spreadsheet")
 
-# サイドバー：ログイン
-st.sidebar.title("🔐 Login")
 pw = st.sidebar.text_input("パスワード", type="password")
-
 if pw != correct_pw:
     st.info("パスワードを入力してください。")
     st.stop()
 
-# --- 状態保持 ---
 if 'selected_date' not in st.session_state:
     st.session_state.selected_date = datetime.now().date()
 
-# --- データ読み込み ---
 def load_data(sheet_name):
     if not sheet_url: return pd.DataFrame()
     try:
@@ -72,44 +76,55 @@ tab_cal, tab_ev, tab_task, tab_time = st.tabs(["📅 カレンダー", "📌 予
 # --- 1. カレンダータブ ---
 with tab_cal:
     now = datetime.now()
-    col1, col2 = st.columns([2, 1])
-    sel_year = col1.selectbox("年", [now.year, now.year+1], index=0, label_visibility="collapsed")
-    sel_month = col2.selectbox("月", list(range(1, 13)), index=now.month-1, label_visibility="collapsed")
+    col_sel1, col_sel2 = st.columns([1, 1])
+    sel_year = col_sel1.selectbox("年", [now.year, now.year+1], index=0, label_visibility="collapsed")
+    sel_month = col_sel2.selectbox("月", list(range(1, 13)), index=now.month-1, label_visibility="collapsed")
+    
     cal = calendar.monthcalendar(sel_year, sel_month)
     days_labels = ["月", "火", "水", "木", "金", "土", "日"]
-    cols = st.columns(7)
-    for i, label in enumerate(days_labels): cols[i].write(f"**{label}**")
+    
+    # 曜日を一行に並べる
+    header_cols = st.columns(7)
+    for i, label in enumerate(days_labels):
+        header_cols[i].markdown(f"**{label}**")
+
+    # 日付を一行に並べる
     for week in cal:
-        cols = st.columns(7)
+        day_cols = st.columns(7)
         for i, day in enumerate(week):
             if day != 0:
                 d_obj = datetime(sel_year, sel_month, day).date()
                 d_str = d_obj.strftime("%Y-%m-%d")
                 has_ev = not df_s.empty and d_str in df_s.iloc[:, 0].astype(str).values
                 is_hol = jpholiday.is_holiday(d_obj)
+                
                 label = str(day)
-                if is_hol: label += "\n🎌"
-                elif has_ev: label += "\n📍"
-                if cols[i].button(label, key=f"d_{d_str}_{i}"):
+                if is_hol: label += "🎌"
+                elif has_ev: label += "📍"
+                
+                if day_cols[i].button(label, key=f"d_{d_str}"):
                     st.session_state.selected_date = d_obj
-            else: cols[i].write("")
+            else:
+                day_cols[i].write("")
+
     st.divider()
     sel = st.session_state.selected_date
-    st.subheader(f"🔍 {sel.strftime('%m月%d日')} の情報")
+    st.subheader(f"🔍 {sel.strftime('%m/%d')} の情報")
     hol_n = jpholiday.is_holiday_name(sel)
-    if hol_n: st.error(f"🎌 祝日: {hol_n}")
+    if hol_n: st.error(f"🎌 {hol_n}")
+    
     if not df_s.empty:
         day_evs = df_s[df_s.iloc[:, 0].astype(str) == sel.strftime("%Y-%m-%d")]
         if not day_evs.empty:
-            for v in day_evs.iloc[:, 1]: st.info(f"📍 予定: {v}")
+            for v in day_evs.iloc[:, 1]: st.info(f"📍 {v}")
         else: st.write("予定なし")
 
 # --- 2. 予定追加 ---
 with tab_ev:
     st.subheader("予定の登録")
-    st.write(f"選択中: **{st.session_state.selected_date}**")
-    ev_text = st.text_input("予定の内容を入力")
-    if st.button("この日で保存"):
+    st.write(f"選択日: **{st.session_state.selected_date}**")
+    ev_text = st.text_input("予定を入力")
+    if st.button("保存", key="save_ev"):
         if ev_text:
             requests.post(f"{gas_url}?sheet=schedules", json=[st.session_state.selected_date.strftime("%Y-%m-%d"), ev_text])
             st.success("保存完了！")
@@ -121,11 +136,11 @@ with tab_task:
     st.write(f"期限日: **{st.session_state.selected_date}**")
     with st.form("task_f"):
         t_sub = st.selectbox("教科", SUBJECTS)
-        t_msg = st.text_input("課題内容")
+        t_msg = st.text_input("内容")
         if st.form_submit_button("課題を保存"):
             if t_msg:
                 requests.post(f"{gas_url}?sheet=tasks", json=[t_sub, t_msg, st.session_state.selected_date.strftime("%Y-%m-%d"), "FALSE"])
-                st.success("課題を保存しました")
+                st.success("保存完了")
                 st.rerun()
 
 # --- 4. 時間割 ---
@@ -139,13 +154,3 @@ with tab_time:
         "金": ["地総", "体育", "数基β", "現国", "SP I", "歴総", "-"]
     }
     st.table(pd.DataFrame(timetable, index=[f"{i+1}限" for i in range(7)]))
-    st.divider()
-    st.subheader("🎒 持ち物チェック")
-    belongings = {"科技": "レポート・実験着", "体育": "体操服・ジャージ", "音楽": "ファイル・楽譜", "家庭": "エプロン・セット"}
-    today_w = datetime.now().weekday()
-    days_map = ["月", "火", "水", "木", "金", "土", "日"]
-    if today_w < 5:
-        today_subs = timetable[days_map[today_w]]
-        needed = [v for k, v in belongings.items() if any(k in s for s in today_subs)]
-        if needed: st.warning("今日の持ち物: " + " / ".join(set(needed)))
-        else: st.write("特別な持ち物は不要です。")
