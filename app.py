@@ -108,3 +108,23 @@ with tabs[0]:
     for week in weeks:
         for i, day in enumerate(week):
             if day == 0: html += '<div class
+weeks = calendar.Calendar(firstweekday=6).monthdayscalendar(y, m)
+    for week in weeks:
+        for i, day in enumerate(week):
+            if day == 0:
+                # ここを1行で書くか、正しく閉じます
+                html += '<div class="cal-box" style="background:#fcfcfc;"></div>'
+            else:
+                d_obj = datetime(y, m, day).date()
+                d_str = d_obj.strftime("%Y-%m-%d")
+                is_sel = "selected-box" if d_obj == st.session_state.selected_date else ""
+                is_hol = jpholiday.is_holiday(d_obj)
+                c_cls = "sun" if (i == 0 or is_hol) else ("sat" if i == 6 else "")
+                
+                # 予定があるかチェック
+                has_event = not df_s.empty and d_str in df_s.iloc[:, 0].astype(str).values
+                mark = "🎌" if is_hol else ("📍" if has_event else "")
+                
+                # aタグの生成（ここも途中で改行されないよう注意）
+                link_html = f'<a href="/?d={d_str}" target="_self" class="cal-box date-box {is_sel} {c_cls}">'
+                html += f'{link_html}<span class="day-text">{day}</span><span class="mark-text">{mark}</span></a>'
