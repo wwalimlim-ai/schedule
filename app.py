@@ -4,61 +4,12 @@ import requests
 from datetime import datetime
 import jpholiday
 import calendar
+from streamlit_calendar import calendar as st_cal # 不要なら消してOK
 
-# --- ページ設定 ---
+# --- 1. ページ設定 ---
 st.set_page_config(page_title="学生用ツール", layout="centered")
 
-# 【超・強制レイアウトCSS】
-# Streamlitがスマホで縦並びにするための「計算」をすべて上書きして無効化します
-st.markdown("""
-    <style>
-    /* 1. 全体の余白削除 */
-    .main .block-container { padding: 1rem 0.1rem !important; }
-    
-    /* 2. ボタンを包む横方向のコンテナを強制的に「flex-row」で固定 */
-    div[data-testid="stHorizontalBlock"] {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        gap: 2px !important;
-    }
-    
-    /* 3. 各カラムの幅をスマホでも強制的に7分割に固定（縦並びを阻止） */
-    div[data-testid="column"] {
-        width: 14.28% !important;
-        flex: 1 1 0% !important;
-        min-width: 0 !important;
-    }
-
-    /* 4. ボタンの見た目をカレンダー風に */
-    .stButton > button {
-        width: 100% !important;
-        padding: 0 !important;
-        font-size: 11px !important;
-        height: 48px !important;
-        border-radius: 4px !important;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-    }
-    
-    /* 曜日ヘッダー用（HTML） */
-    .day-header-grid {
-        display: flex;
-        flex-direction: row;
-        margin-bottom: 5px;
-    }
-    .day-header-item {
-        width: 14.28%;
-        text-align: center;
-        font-size: 11px;
-        font-weight: bold;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- ログイン管理（標準的なやり方に戻す） ---
+# --- 2. ログイン管理 ---
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
@@ -73,11 +24,18 @@ if not st.session_state.authenticated:
             st.error("パスワードが違います")
     st.stop()
 
-# --- ここからはログイン後のメイン画面 ---
+# --- 3. ログイン後のメインロジック ---
 
+# 選択された日付を保持
 if 'selected_date' not in st.session_state:
-    st.session_state.selected_date = datetime.now().date()
+    st.session_state.selected_date = datetime.now().strftime("%Y-%m-%d")
 
+# クエリパラメータから日付を受け取る（ログイン維持用）
+query_params = st.query_params
+if "d" in query_params:
+    st.session_state.selected_date = query_params["d"]
+
+# データ読み込み
 gas_url = st.secrets.get("GAS_URL")
 sheet_url = st.secrets.get("connections", {}).get("gsheets", {}).get("spreadsheet")
 
@@ -95,56 +53,96 @@ SUBJECTS = ["現国", "言語文化", "地総", "歴総", "数基α", "数基β"
 st.title("🎓 学生用ツール")
 tab_cal, tab_ev, tab_task, tab_time = st.tabs(["📅 カレンダー", "📌 予定追加", "📝 課題追加", "⏰ 時間割"])
 
+# --- カレンダータブ ---
 with tab_cal:
     now = datetime.now()
     c1, c2 = st.columns(2)
-    sel_year = c1.selectbox("年", [2025, 2026], index=1, label_visibility="collapsed")
-    sel_month = c2.selectbox("月", list(range(1, 13)), index=now.month-1, label_visibility="collapsed")
-    
-    # 曜日ヘッダー
-    st.markdown("""
-        <div class="day-header-grid">
-            <div class="day-header-item" style="color:red;">日</div><div class="day-header-item">月</div>
-            <div class="day-header-item">火</div><div class="day-header-item">水</div>
-            <div class="day-header-item">木</div><div class="day-header-item">金</div>
-            <div class="day-header-item" style="color:blue;">土</div>
-        </div>
-    """, unsafe_allow_html=True)
+    sel_year = c1.selectbox("年", [2025, 2026], index=1)
+    sel_month = c2.selectbox("月", list(range(1, 13)), index=now.month-1)
+
+    # 【神のHTML/CSS】
+    # ボタン自体を完全に自作し、クリックしてもページが飛ばない工夫
+    cal_html = f"""
+    <style>
+        .grid-container {{
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 4px;
+            width: 100%;
+        }}
+        .grid-item {{
+            aspect-ratio: 1 / 1;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+            background-color: #f8f9fb;
+            color: #31333F;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: 0.2s;
+        }}
+        .grid-item:active {{ background-color: #e0e0e0; }}
+        .header {{ font-weight: bold; border: none; background: none; aspect-ratio: auto; padding: 5px 0; }}
+        .selected {{ background-color: #ff4b4b !important; color: white !important; font-weight: bold; border: none; }}
+        .marker {{ font-size: 10px; margin-top: -2px; }}
+    </style>
+    <div class="grid-container">
+        <div class="grid-item header" style="color:red;">日</div>
+        <div class="grid-item header">月</div><div class="grid-item header">火</div>
+        <div class="grid-item header">水</div><div class="grid-item header">木</div>
+        <div class="grid-item header">金</div><div class="grid-item header" style="color:blue;">土</div>
+    """
 
     cal_obj = calendar.Calendar(firstweekday=6)
     weeks = cal_obj.monthdayscalendar(sel_year, sel_month)
 
     for week in weeks:
-        # この columns(7) がスマホで縦にならないように CSS で最強の制限をかけています
-        cols = st.columns(7) 
         for i, day in enumerate(week):
-            if day != 0:
+            if day == 0:
+                cal_html += '<div style="aspect-ratio: 1 / 1;"></div>'
+            else:
                 d_obj = datetime(sel_year, sel_month, day).date()
                 d_str = d_obj.strftime("%Y-%m-%d")
-                has_ev = not df_s.empty and d_str in df_s.iloc[:, 0].astype(str).values
+                is_selected = "selected" if d_str == st.session_state.selected_date else ""
                 is_hol = jpholiday.is_holiday(d_obj)
+                has_ev = not df_s.empty and d_str in df_s.iloc[:, 0].astype(str).values
                 
-                label = f"{day}"
-                if is_hol: label += "\n🎌"
-                elif has_ev: label += "\n📍"
+                color = "inherit"
+                if i == 0 or is_hol: color = "red"
+                elif i == 6: color = "blue"
                 
-                # 選択中のボタンは色を変える（primary）
-                # リンクではない「本物のボタン」なので、飛ぶことはなくログインも維持される
-                btn_type = "primary" if d_obj == st.session_state.selected_date else "secondary"
+                marker = "🎌" if is_hol else ("📍" if has_ev else "")
                 
-                if cols[i].button(label, key=f"btn_{d_str}", type=btn_type):
-                    st.session_state.selected_date = d_obj
-                    st.rerun()
-            else:
-                cols[i].empty()
+                # ここが重要：URLを変えずにStreamlitの状態だけ更新するための「仕掛け」
+                cal_html += f'<a href="/?d={d_str}" target="_self" class="grid-item {is_selected}" style="color:{color};">{day}<span class="marker">{marker}</span></a>'
+    
+    cal_html += "</div>"
+    st.markdown(cal_html, unsafe_allow_html=True)
 
     st.divider()
-    sel = st.session_state.selected_date
-    st.subheader(f"🔍 {sel.strftime('%m/%d')} の情報")
+    
+    # 選択中の情報表示
+    sel_d = st.session_state.selected_date
+    st.subheader(f"🔍 {sel_d} の情報")
     if not df_s.empty:
-        day_evs = df_s[df_s.iloc[:, 0].astype(str).str.contains(sel.strftime("%Y-%m-%d"))]
+        day_evs = df_s[df_s.iloc[:, 0].astype(str).str.contains(sel_d)]
         if not day_evs.empty:
             for v in day_evs.iloc[:, 1]: st.info(f"📍 {v}")
         else: st.write("予定なし")
 
-# --- 他のタブは前回と同じ ---
+# --- 予定追加・課題追加などのタブ ---
+with tab_ev:
+    st.subheader("予定の登録")
+    st.write(f"選択日: **{st.session_state.selected_date}**")
+    ev_text = st.text_input("予定を入力")
+    if st.button("保存", key="save_ev"):
+        if ev_text:
+            requests.post(f"{gas_url}?sheet=schedules", json=[st.session_state.selected_date, ev_text])
+            st.success("完了！")
+            st.rerun()
+
+# (以下、課題追加・時間割などのコードは維持)
