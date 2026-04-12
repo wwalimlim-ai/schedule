@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 import requests
+import time # ← 追加
 from datetime import datetime, timedelta, timezone
 import jpholiday
 import calendar
 
-# --- 1. ページ設定 (最上部への固定と余白削除) ---
+# --- 1. ページ設定 ---
 st.set_page_config(page_title="MyTool", layout="centered")
 
 st.markdown("""
@@ -19,36 +20,29 @@ st.markdown("""
     .date-box { font-size: 16px; position: relative; }
     .selected-box { background: #ff4b4b !important; color: white !important; border-radius: 8px; font-weight: bold; }
     .sun { color: #ff4b4b; } .sat { color: #007bff; }
-    .has-event-dot { width: 5px; height: 5px; background-color: #ff9f00; border-radius: 50%; margin-top: 2px; }
+    .has-event-dot { width: 6px; height: 6px; background-color: #ff9f00; border-radius: 50%; margin-top: 2px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. データ定義 (TIMETABLE等は以前と同じ) ---
+# --- 2. データ定義 ---
 BELONGINGS = {"現国": ["教科書", "ノート", "電子辞書", "核心漢字", "論理エンジン", "ステップ1.5"],"言語文化": ["教科書", "ノート", "電子辞書", "文法ノート", "グランステップ", "漢文必携"],"地総": ["教科書", "地図帳"], "歴総": ["教科書", "ワークノート"],"数基α": ["教科書I", "ノート", "CONNECT", "Focus Gold"],"数基β": ["教科書A", "ノート", "CONNECT", "Focus Gold"],"科技α": ["物理基礎", "セミナー", "ノート"], "科技β": ["生物基礎", "リードα", "ノート"],"保健": ["教科書", "図説"], "体育": ["体操服", "ルール本"], "音楽": ["教科書", "ファイル"],"コミュ I": ["Heartening", "LEAP", "Cutting Edge", "Navi"],"論表": ["EARTHRISE", "総合英語", "Workbook", "Listening"],"SP I": ["Heartening"], "家庭": ["教科書", "生活学Navi", "ファイル"],"探求基礎": ["テキスト「課題研究メソッド」"], "LT": ["（特になし）"]}
 TIMETABLE = {"月":["科技β","数基α","家庭","地総","科技α","言語文化","論表"],"火":["科技α","音楽","歴総","体育","数基α","言語文化"],"水":["保健","探求基礎","論表","数基β","現国","コミュ I"],"木":["科技β","コミュ I","言語文化","家庭","音楽","数基α","LT"],"金":["地総","体育","数基β","現国","SP I","歴総"]}
 
-# --- 3. データ読み込み（キャッシュクリア機能を強化） ---
+# --- 3. データ読み込み（キャッシュを極限まで弱くする） ---
 gas_url = st.secrets.get("GAS_URL")
 sheet_url = st.secrets.get("connections", {}).get("gsheets", {}).get("spreadsheet")
 
-# キャッシュの寿命を短く(ttl=10)し、手動クリアも可能にする
-@st.cache_data(ttl=10)
-def fetch_csv(url):
-    return pd.read_csv(url)
-
-def load_data(sheet_name):
+# キャッシュなしで読み込む関数
+def load_data_no_cache(sheet_name):
     try:
         base = sheet_url.split('/edit')[0]
-        url = f"{base}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
-        return fetch_csv(url)
+        # URLの末尾にランダムな数字を付けて、ブラウザのキャッシュを強制回避
+        url = f"{base}/gviz/tq?tqx=out:csv&sheet={sheet_name}&cache_bust={time.time()}"
+        return pd.read_csv(url)
     except: return pd.DataFrame()
 
-# 保存処理後にキャッシュを強制破棄する関数
-def clear_all_cache():
-    st.cache_data.clear()
-
-df_s = load_data("schedules")
-df_t = load_data("tasks")
+df_s = load_data_no_cache("schedules")
+df_t = load_data_no_cache("tasks")
 
 # 時間設定
 JST = timezone(timedelta(hours=+9), 'JST')
@@ -59,13 +53,12 @@ if "d" in st.query_params:
 else:
     if 'selected_date' not in st.session_state:
         st.session_state.selected_date = now.date()
-
 sel = st.session_state.selected_date
 
 # --- 4. メインUI ---
 tabs = st.tabs(["📅 カレンダー", "🎒 持ち物", "📋 課題", "📝 予定一覧", "➕ 登録"])
 
-with tabs[0]: # カレンダー
+with tabs[0]:
     st.write(f"### 📅 {sel.month}/{sel.day}")
     html = '<div class="calendar-wrapper">'
     for d, cls in [("日","sun"),("月",""),("火",""),("水",""),("木",""),("金",""),("土","sat")]:
@@ -82,28 +75,27 @@ with tabs[0]: # カレンダー
                 dot = '<div class="has-event-dot"></div>' if has_ev else ""
                 html += f'<a href="/?d={d_str}" target="_self" class="cal-box date-box {is_sel} {c_cls}">{day}{dot}</a>'
     st.markdown(html + '</div>', unsafe_allow_html=True)
-    evs = df_s[df_s.iloc[:, 0].astype(str).str.contains(sel.strftime("%Y-%m-%d"))] if not df_s.empty else []
-    if len(evs) > 0:
+    if not df_s.empty:
+        evs = df_s[df_s.iloc[:, 0].astype(str).str.contains(sel.strftime("%Y-%m-%d"))]
         for v in evs.iloc[:, 1]: st.info(v)
 
-with tabs[1]: # 持ち物
+with tabs[1]:
     day_name = ["月","火","水","木","金","土","日"][sel.weekday()]
     st.write(f"### 🎒 {day_name}曜日のセット")
     if day_name in TIMETABLE:
         for sub in TIMETABLE[day_name]:
             items = " / ".join(BELONGINGS.get(sub, []))
             st.write(f"**{sub}**: {items}"); st.divider()
-    else: st.write("お休みです")
+    else: st.write("休み")
 
-with tabs[2]: # 課題
+with tabs[2]:
     st.write("### 📋 未完了の課題")
     if not df_t.empty:
         uncompleted = df_t[df_t.iloc[:, 3].astype(str).str.upper() == "FALSE"]
-        if not uncompleted.empty:
-            for _, row in uncompleted.iterrows(): st.warning(f"**{row[0]}**: {row[1]} (期限: {row[2]})")
-        else: st.success("課題はすべて完了！")
+        for _, row in uncompleted.iterrows(): st.warning(f"**{row[0]}**: {row[1]} ({row[2]})")
+    else: st.success("完了！")
 
-with tabs[3]: # 予定一覧
+with tabs[3]:
     st.write("### 📝 今後の予定")
     if not df_s.empty:
         temp_df = df_s.copy()
@@ -111,27 +103,20 @@ with tabs[3]: # 予定一覧
         future = temp_df[temp_df.iloc[:, 0].dt.date >= now.date()].sort_values(temp_df.columns[0])
         for _, row in future.iterrows(): st.write(f"📅 {row[0].strftime('%m/%d')}: {row[1]}")
 
-with tabs[4]: # 登録
+with tabs[4]:
     st.write(f"### ➕ {sel.month}/{sel.day} に追加")
     mode = st.radio("種類", ["予定", "課題"], horizontal=True)
     with st.form("add_form", clear_on_submit=True):
-        txt = st.text_input("内容を入力")
+        txt = st.text_input("内容")
         sub = st.selectbox("教科", list(BELONGINGS.keys())) if mode == "課題" else ""
-        submit = st.form_submit_button("保存して更新")
-        
-        if submit:
-            if not txt:
-                st.error("内容を入力してください")
-            else:
-                # GASへ送信
+        if st.form_submit_button("保存して更新"):
+            if txt:
                 data = [sel.strftime("%Y-%m-%d"), txt] if mode == "予定" else [sub, txt, sel.strftime("%Y-%m-%d"), "FALSE"]
-                sheet_name = "schedules" if mode == "予定" else "tasks"
-                res = requests.post(f"{gas_url}?sheet={sheet_name}", json=data)
+                sheet = "schedules" if mode == "予定" else "tasks"
+                requests.post(f"{gas_url}?sheet={sheet}", json=data)
                 
-                if res.status_code == 200:
-                    # 🚀 ここが重要：キャッシュを消してからリロード
-                    clear_all_cache()
-                    st.success("スプレッドシートに保存しました！一覧を更新します...")
-                    st.rerun()
-                else:
-                    st.error("通信エラーが発生しました")
+                # 🚀 魔法の「1秒待ち」と「キャッシュ破壊」
+                st.success("スプレッドシートを更新中...")
+                time.sleep(1.2) # スプレッドシートがCSVを生成するのを待つ
+                st.cache_data.clear()
+                st.rerun()
