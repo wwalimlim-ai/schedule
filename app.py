@@ -4,7 +4,7 @@ import requests
 from datetime import datetime
 import jpholiday
 import calendar
-from streamlit_calendar import calendar as st_cal # 不要なら消してOK
+
 
 # --- 1. ページ設定 ---
 st.set_page_config(page_title="学生用ツール", layout="centered")
