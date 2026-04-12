@@ -5,7 +5,21 @@ import json
 import os
 
 # --- ページ設定 ---
-st.set_page_config(page_title="学生ツール Mobile", layout="centered")
+st.set_page_config(page_title="カレンダーなど", layout="centered")
+
+# パスワード設定
+if "MY_PASSWORD" in st.secrets:
+    correct_pw = st.secrets["MY_PASSWORD"]
+else:
+    st.error("管理画面でパスワードを設定してください")
+    st.stop()
+
+# ログイン画面の表示
+pw = st.sidebar.text_input("パスワードを入力", type="password")
+
+if pw != correct_pw:
+    st.info("左のメニューからパスワードを入力してください。")
+    st.stop()  # パスワードが違う間は、ここでプログラムを止める
 
 # --- データ読み込み用関数 ---
 def load_json(path, default):
