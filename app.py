@@ -60,22 +60,25 @@ if not st.session_state.authenticated:
     st.stop()
 
 # --- 4. 状態管理 & データ読み込み ---
+from datetime import datetime, timedelta, timezone
+
+# --- 日本時間(JST)の取得 ---
+# サーバーが海外にあっても、強制的に日本の時間を「今日」にする
+JST = timezone(timedelta(hours=+9), 'JST')
+now_jst = datetime.now(JST).date()
+
+# --- 状態管理 ---
 params = st.query_params
 if "d" in params:
+    # URLに日付があればそれを優先
     st.session_state.selected_date = datetime.strptime(params["d"], "%Y-%m-%d").date()
 elif 'selected_date' not in st.session_state:
-    st.session_state.selected_date = datetime.now().date()
+    # URLになければ、日本の「今日」をデフォルトにする
+    st.session_state.selected_date = now_jst
 
-gas_url = st.secrets.get("GAS_URL")
-sheet_url = st.secrets.get("connections", {}).get("gsheets", {}).get("spreadsheet")
-
-def load_data(sheet_name):
-    try:
-        url = f"{sheet_url.split('/edit')[0]}/gviz/tq?tqx=out:csv&sheet={sheet_name}"
-        return pd.read_csv(url)
-    except: return pd.DataFrame()
-
-df_s = load_data("schedules")
+# 年月のセレクトボックスの初期値も日本時間にする
+default_year = now_jst.year
+default_month = now_jst.month
 
 # --- 5. メイン画面 ---
 st.title("🎓 学生用ツール Pro")
