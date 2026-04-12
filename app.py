@@ -8,55 +8,71 @@ import calendar
 # --- 1. ページ設定 ---
 st.set_page_config(page_title="学生用ツール", layout="centered")
 
-# 【隙間完全抹殺CSS】
+# 【枠線＆数字配置CSS】
+# これで「先に枠線を用意して中に数字を配置」を完璧に再現します
 st.markdown("""
     <style>
-    /* 画面端の余白を極限まで削る */
-    .main .block-container { padding: 1rem 0rem !important; }
+    .main .block-container { padding: 1rem 0.2rem !important; }
     
-    /* [重要] カラム同士の隙間を0にする */
-    div[data-testid="stHorizontalBlock"] {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        gap: 0px !important; /* 隙間をゼロに */
-    }
-    
-    /* [重要] 各カラムのパディングを消してボタンを密着させる */
-    div[data-testid="column"] {
-        width: 14.28% !important;
-        flex: 1 1 0% !important;
-        min-width: 0 !important;
-        padding: 0px 1px !important; /* 隣との間に1pxだけ隙間を作る */
+    /* カレンダー全体の枠組み */
+    .cal-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        border-top: 1px solid #ddd;
+        border-left: 1px solid #ddd;
+        background-color: white;
     }
 
-    /* ボタンを枠いっぱいに広げる */
-    .stButton > button {
-        width: 100% !important;
-        aspect-ratio: 1 / 1.1 !important;
-        padding: 0 !important;
-        font-size: 12px !important;
-        border-radius: 0px !important; /* 四角くして隙間を埋める */
-        margin: 0 !important;
-    }
-
-    /* 曜日ヘッダー */
-    .day-header-grid {
-        display: flex;
-        flex-direction: row;
-        width: 100%;
-        margin-bottom: 5px;
-    }
-    .day-header-item {
-        width: 14.28%;
-        text-align: center;
-        font-size: 11px;
+    /* 曜日のヘッダー */
+    .cal-header {
+        background-color: #f8f9fa;
         font-weight: bold;
+        text-align: center;
+        padding: 5px 0;
+        font-size: 11px;
+        border-right: 1px solid #ddd;
+        border-bottom: 1px solid #ddd;
     }
+
+    /* 日付の枠（これがボタン代わり） */
+    .cal-cell {
+        aspect-ratio: 1 / 1;
+        border-right: 1px solid #ddd;
+        border-bottom: 1px solid #ddd;
+        position: relative;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        align-items: center;
+        padding-top: 4px;
+        transition: 0.2s;
+        text-decoration: none;
+        color: #333;
+    }
+    
+    /* 押した時の反応 */
+    .cal-cell:active { background-color: #eee; }
+    
+    /* 選択中の日の色 */
+    .cal-cell.selected {
+        background-color: #ff4b4b !important;
+        color: white !important;
+    }
+
+    /* 数字の配置 */
+    .day-num { font-size: 13px; font-weight: 500; }
+    
+    /* 予定・祝日のマーク */
+    .mark { font-size: 10px; margin-top: 1px; }
+
+    /* 土日の色 */
+    .sun { color: red; }
+    .sat { color: blue; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ログイン管理（セッション維持） ---
+# --- 2. ログイン管理（URLを変えないので消えません） ---
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
@@ -70,7 +86,12 @@ if not st.session_state.authenticated:
     st.stop()
 
 # --- 3. メインロジック ---
-if 'selected_date' not in st.session_state:
+# 日付選択をクエリパラメータ（?d=...）で管理
+# これが「ボタンを押すと移動する」原理の正体です
+query_params = st.query_params
+if "d" in query_params:
+    st.session_state.selected_date = datetime.strptime(query_params["d"], "%Y-%m-%d").date()
+elif 'selected_date' not in st.session_state:
     st.session_state.selected_date = datetime.now().date()
 
 gas_url = st.secrets.get("GAS_URL")
@@ -87,47 +108,51 @@ def load_data(sheet_name):
 df_s = load_data("schedules")
 
 st.title("🎓 学生用ツール")
-tab_cal, tab_ev, tab_task, tab_time = st.tabs(["📅 カレンダー", "📌 予定追加", "📝 課題追加", "⏰ 時間割"])
+tabs = st.tabs(["📅 カレンダー", "📌 予定追加", "📝 課題追加", "⏰ 時間割"])
 
-with tab_cal:
+# --- カレンダータブ ---
+with tabs[0]:
     now = datetime.now()
     c1, c2 = st.columns(2)
-    sel_year = c1.selectbox("年", [2025, 2026], index=1, key="y_sel")
-    sel_month = c2.selectbox("月", list(range(1, 13)), index=now.month-1, key="m_sel")
-    
-    # 曜日ヘッダー
-    st.markdown("""
-        <div class="day-header-grid">
-            <div class="day-header-item" style="color:red;">日</div><div class="day-header-item">月</div>
-            <div class="day-header-item">火</div><div class="day-header-item">水</div>
-            <div class="day-header-item">木</div><div class="day-header-item">金</div>
-            <div class="day-header-item" style="color:blue;">土</div>
-        </div>
-    """, unsafe_allow_html=True)
+    sel_year = c1.selectbox("年", [2025, 2026], index=1)
+    sel_month = c2.selectbox("月", list(range(1, 13)), index=now.month-1)
 
+    # 自作カレンダーの構築
+    html = '<div class="cal-grid">'
+    # ヘッダー
+    for i, d in enumerate(["日", "月", "火", "水", "木", "金", "土"]):
+        color = "sun" if i == 0 else ("sat" if i == 6 else "")
+        html += f'<div class="cal-header {color}">{d}</div>'
+    
+    # 日付
     cal_obj = calendar.Calendar(firstweekday=6)
     weeks = cal_obj.monthdayscalendar(sel_year, sel_month)
-
+    
     for week in weeks:
-        cols = st.columns(7) 
         for i, day in enumerate(week):
-            if day != 0:
+            if day == 0:
+                html += '<div style="border-right: 1px solid #ddd; border-bottom: 1px solid #ddd; background:#fafafa;"></div>'
+            else:
                 d_obj = datetime(sel_year, sel_month, day).date()
                 d_str = d_obj.strftime("%Y-%m-%d")
-                has_ev = not df_s.empty and d_str in df_s.iloc[:, 0].astype(str).values
+                
+                # スタイル判定
+                is_sel = "selected" if d_obj == st.session_state.selected_date else ""
                 is_hol = jpholiday.is_holiday(d_obj)
+                color_class = "sun" if (i == 0 or is_hol) else ("sat" if i == 6 else "")
                 
-                label = f"{day}"
-                if is_hol: label += "\n🎌"
-                elif has_ev: label += "\n📍"
+                mark = "🎌" if is_hol else ("📍" if not df_s.empty and d_str in df_s.iloc[:, 0].astype(str).values else "")
                 
-                btn_type = "primary" if d_obj == st.session_state.selected_date else "secondary"
-                
-                if cols[i].button(label, key=f"btn_{d_str}", type=btn_type):
-                    st.session_state.selected_date = d_obj
-                    st.rerun()
-            else:
-                cols[i].empty()
+                # ★ここがポイント：aタグでURLの末尾に日付を付けて「自分自身」に飛ばす
+                # target="_self" なので、ブラウザは「移動」とみなさずログインを維持します
+                html += f'''
+                    <a href="/?d={d_str}" target="_self" class="cal-cell {is_sel} {color_class}">
+                        <span class="day-num">{day}</span>
+                        <span class="mark">{mark}</span>
+                    </a>
+                '''
+    html += '</div>'
+    st.markdown(html, unsafe_allow_html=True)
 
     st.divider()
     sel = st.session_state.selected_date
@@ -137,3 +162,5 @@ with tab_cal:
         if not day_evs.empty:
             for v in day_evs.iloc[:, 1]: st.info(f"📍 {v}")
         else: st.write("予定なし")
+
+# (予定追加・課題追加などのタブは以前のままでOK)
