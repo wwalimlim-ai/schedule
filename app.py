@@ -51,9 +51,15 @@ BELONGINGS = {
     "LT": ["（特になし）"]
 }
 
-# --- 3. ログイン管理 ---
+# --- 3. ログイン管理（一度入ればリロードしてもOKにする） ---
+# クエリパラメータに日付が含まれている場合、それはログイン後の操作とみなす
+# または、すでにセッション内で認証済みの場合はパスする
 if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
+    # URLに何らかのパラメータがある＝操作中なので、本来は認証済みのはず
+    if len(st.query_params) > 0:
+        st.session_state.authenticated = True
+    else:
+        st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
     st.title("🔒 ログイン")
