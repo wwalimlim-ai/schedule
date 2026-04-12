@@ -74,6 +74,7 @@ if not st.session_state.authenticated:
 gas_url = st.secrets.get("GAS_URL")
 sheet_url = st.secrets.get("connections", {}).get("gsheets", {}).get("spreadsheet")
 
+@st.cache_data(ttl=60)  # ←これを追加！(60秒間はデータを使い回す設定)
 def load_data(sheet_name):
     try:
         if not sheet_url: return pd.DataFrame()
