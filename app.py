@@ -141,17 +141,50 @@ with tabs[1]:
 
 # 【タブ3: 登録】
 with tabs[2]:
-    st.subheader("新規登録")
-    mode = st.radio("登録内容", ["予定（カレンダー）", "課題（スプレッドシート）"])
-    if mode == "予定（カレンダー）":
-        content = st.text_input("予定の内容")
-        if st.button("保存"):
-            requests.post(f"{gas_url}?sheet=schedules", json=[st.session_state.selected_date.strftime("%Y-%m-%d"), content])
-            st.success("カレンダーに反映しました")
+    st.subheader("📝 登録・予定管理")
+    
+    # 1. 登録先を選択
+    mode = st.radio("何を登録しますか？", ["📅 予定（行事・メモ）", "✍️ 課題（提出物）"], horizontal=True)
+    
+    # 2. 日付の確認（現在選択中の日付を強調）
+    sel = st.session_state.selected_date
+    st.info(f"選択中の日付: **{sel.strftime('%Y/%m/%d')}**")
+    st.caption("※日付を変えたい場合は「カレンダー」タブで日付をタップしてからここに戻ってください。")
+
+    if mode == "📅 予定（行事・メモ）":
+        with st.form("event_form"):
+            content = st.text_input("予定の内容（例：英単語テスト、部活休み）")
+            submitted = st.form_submit_button("この日に予定を保存")
+            if submitted:
+                if content:
+                    requests.post(f"{gas_url}?sheet=schedules", json=[sel.strftime("%Y-%m-%d"), content])
+                    st.success(f"{sel.month}/{sel.day} に「{content}」を登録しました！")
+                else:
+                    st.error("内容を入力してください")
+
     else:
-        with st.form("task"):
-            sub = st.selectbox("教科", list(BELONGINGS.keys()))
-            msg = st.text_input("課題の内容")
-            if st.form_submit_button("課題を送信"):
-                requests.post(f"{gas_url}?sheet=tasks", json=[sub, msg, st.session_state.selected_date.strftime("%Y-%m-%d"), "FALSE"])
-                st.success("課題リストに追加しました")
+        with st.form("task_form"):
+            # 教科選択（PC版のリストを使用）
+            sub = st.selectbox("教科を選択", list(BELONGINGS.keys()))
+            msg = st.text_input("課題の内容（例：ワーク P10-15、プリント提出）")
+            
+            # 期限のヒント
+            st.write(f"🚩 提出期限: **{sel.strftime('%m/%d')}**")
+            
+            submitted = st.form_submit_button("課題リストに追加")
+            if submitted:
+                if msg:
+                    requests.post(f"{gas_url}?sheet=tasks", json=[sub, msg, sel.strftime("%Y-%m-%d"), "FALSE"])
+                    st.success(f"{sub} の課題「{msg}」を登録しました！")
+                else:
+                    st.error("内容を入力してください")
+
+    # 3. 予定のプレビュー（入力ミス防止）
+    st.divider()
+    st.write("📖 **この日の現在の状況:**")
+    today_evs = df_s[df_s.iloc[:, 0].astype(str).str.contains(sel.strftime("%Y-%m-%d"))] if not df_s.empty else pd.DataFrame()
+    if not today_evs.empty:
+        for v in today_evs.iloc[:, 1]:
+            st.caption(f"・ {v}")
+    else:
+        st.caption("予定はありません。")
