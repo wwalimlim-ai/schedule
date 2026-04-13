@@ -1,52 +1,49 @@
 import streamlit as st
 import pandas as pd
 import requests
+import time
 from datetime import datetime, timedelta, timezone
 import jpholiday
 import calendar
 
+# --- 1. ページ設定（スマホ爆速UI用） ---
 st.set_page_config(page_title="MyTool", layout="centered")
 
-# --- 1. データ読み込み（デバッグ機能付き） ---
-gas_url = st.secrets.get("GAS_URL")
-# 通信テスト用（画面に出ます）
-if not gas_url:
-    st.error("GAS_URLが設定されていません！")
-else:
-    try:
-        test_res = requests.get(f"{gas_url}?sheet=schedules")
-        if test_res.status_code == 200:
-            st.success("GASとの通信に成功しました！")
-        else:
-            st.error(f"GASと通信はできましたが、エラーが返ってきました: {test_res.status_code}")
-    except:
-        st.error("GASにアクセスできません。URLが間違っているか、公開設定が『全員』になっていません。")
+st.markdown("""
+    <style>
+    .stAppHeader { display: none; }
+    .main .block-container { padding-top: 0rem !important; padding-left: 0.5rem !important; padding-right: 0.5rem !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 2px; position: sticky; top: 0; z-index: 1000; background-color: white; }
+    .calendar-wrapper { display: grid; grid-template-columns: repeat(7, 1fr); background: white; border: 1px solid #eee; }
+    .cal-box { aspect-ratio: 1/1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-decoration: none; border: 0.5px solid #f8f8f8; color: #444; }
+    .selected-box { background: #ff4b4b !important; color: white !important; border-radius: 8px; font-weight: bold; }
+    .has-event-dot { width: 6px; height: 6px; background-color: #ff9f00; border-radius: 50%; margin-top: 2px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-def load_via_gas(sheet_name):
+# --- 2. データ定義 ---
+BELONGINGS = {"現国": ["教科書", "ノート", "電子辞書", "核心漢字", "論理エンジン", "ステップ1.5"],"言語文化": ["教科書", "ノート", "電子辞書", "文法ノート", "グランステップ", "漢文必携"],"地総": ["教科書", "地図帳"], "歴総": ["教科書", "ワークノート"],"数基α": ["教科書I", "ノート", "Focus Gold"],"数基β": ["教科書A", "ノート", "Focus Gold"],"科技α": ["物理基礎", "セミナー", "ノート"], "科技β": ["生物基礎", "リードα", "ノート"],"保健": ["教科書", "図説"], "体育": ["体操服", "ルール本"],"コミュ I": ["Heartening", "LEAP", "Cutting Edge"],"論表": ["EARTHRISE", "Workbook"],"SP I": ["Heartening"],"家庭": ["教科書", "生活学Navi"],"探求基礎": ["課題研究メソッド"],"LT": ["（特になし）"]}
+TIMETABLE = {"月":["科技β","数基α","家庭","地総","科技α","言語文化","論表"],"火":["科技α","音楽","歴総","体育","数基α","言語文化"],"水":["保健","探求基礎","論表","数基β","現国","コミュ I"],"木":["科技β","コミュ I","言語文化","家庭","音楽","数基α","LT"],"金":["地総","体育","数基β","現国","SP I","歴総"]}
+
+# --- 3. GAS通信ロジック ---
+gas_url = st.secrets.get("GAS_URL")
+
+@st.cache_data(ttl=5) # 5秒間だけキャッシュ
+def load_data(sheet_name):
     try:
         res = requests.get(f"{gas_url}?sheet={sheet_name}", timeout=10)
-        if res.status_code != 200:
-            st.error(f"GASエラー: {res.status_code}")
-            return pd.DataFrame()
         data = res.json()
-        if not data:
-            return pd.DataFrame()
+        if not data: return pd.DataFrame()
         if sheet_name == "schedules":
             return pd.DataFrame(data, columns=["date", "content"])
         else:
             return pd.DataFrame(data, columns=["subject", "content", "deadline", "done"])
-    except Exception as e:
-        # 画面にエラーの中身を出す（これで原因がわかります）
-        st.warning(f"{sheet_name}の読み込みに失敗: {e}")
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
-# データを読み込む
-df_s = load_via_gas("schedules")
-df_t = load_via_gas("tasks")
+df_s = load_data("schedules")
+df_t = load_data("tasks")
 
-# --- 2. CSS & UI (以前のものを極限まで整理) ---
-st.markdown("<style>.stAppHeader { display: none; } .main .block-container { padding-top: 0rem !important; } .calendar-wrapper { display: grid; grid-template-columns: repeat(7, 1fr); background: white; border: 1px solid #eee; } .cal-box { aspect-ratio: 1/1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-decoration: none; border: 0.5px solid #f8f8f8; color: #444; } .selected-box { background: #ff4b4b !important; color: white !important; border-radius: 8px; } .has-event-dot { width: 6px; height: 6px; background-color: #ff9f00; border-radius: 50%; margin-top: 2px; }</style>", unsafe_allow_html=True)
-
+# 時間・日付管理
 JST = timezone(timedelta(hours=+9), 'JST')
 now = datetime.now(JST)
 if "d" in st.query_params:
@@ -55,42 +52,70 @@ elif 'selected_date' not in st.session_state:
     st.session_state.selected_date = now.date()
 sel = st.session_state.selected_date
 
-# --- 3. メイン表示 ---
-tabs = st.tabs(["📅 カレンダー", "🎒 持ち物", "📋 課題", "📝 予定一覧", "➕ 登録"])
+# --- 4. メインUI（タブ構成） ---
+tabs = st.tabs(["📅 カレ", "🎒 持ち物", "📋 課題", "📝 予定一覧", "➕ 登録"])
 
+# 【タブ1: カレンダー】
 with tabs[0]:
-    st.write(f"### {sel.month}/{sel.day}")
+    st.write(f"### 📅 {sel.month}/{sel.day}")
     html = '<div class="calendar-wrapper">'
-    # 曜日のヘッダー（日〜土）
     for d, c in [("日","red"),("月",""),("火",""),("水",""),("木",""),("金",""),("土","blue")]:
         html += f'<div class="cal-box" style="font-size:10px; color:{c};">{d}</div>'
-    
     for week in calendar.Calendar(firstweekday=6).monthdayscalendar(now.year, now.month):
-        for i, day in enumerate(week):
+        for day in week:
             if day == 0: html += '<div class="cal-box"></div>'
             else:
                 d_obj = datetime(now.year, now.month, day).date()
                 d_str = d_obj.strftime("%Y-%m-%d")
                 is_sel = "selected-box" if d_obj == sel else ""
-                # 予定ありドット判定
                 has_ev = not df_s.empty and any(df_s["date"].astype(str) == d_str)
                 dot = '<div class="has-event-dot"></div>' if has_ev else ""
                 html += f'<a href="/?d={d_str}" target="_self" class="cal-box {is_sel}">{day}{dot}</a>'
     st.markdown(html + '</div>', unsafe_allow_html=True)
-    
     if not df_s.empty:
         today_evs = df_s[df_s["date"].astype(str) == sel.strftime("%Y-%m-%d")]
         for v in today_evs["content"]: st.info(v)
 
-# --- (他のタブは以前と同様なので省略しますが、内部ロジックは生きています) ---
-with tabs[4]: # 登録タブ
-    st.write("### ➕ 追加")
+# 【タブ2: 持ち物】
+with tabs[1]:
+    day_name = ["月","火","水","木","金","土","日"][sel.weekday()]
+    st.write(f"### 🎒 {day_name}曜日のセット")
+    if day_name in TIMETABLE:
+        for sub in TIMETABLE[day_name]:
+            st.write(f"**{sub}**: {' / '.join(BELONGINGS.get(sub, []))}")
+            st.divider()
+    else: st.write("お休みです")
+
+# 【タブ3: 課題】
+with tabs[2]:
+    st.write("### 📋 未完了の課題")
+    if not df_t.empty:
+        uncompleted = df_t[df_t["done"].astype(str).str.upper() == "FALSE"]
+        for _, row in uncompleted.iterrows():
+            st.warning(f"**{row['subject']}**: {row['content']} ({row['deadline']})")
+    else: st.success("課題は全部完了！")
+
+# 【タブ4: 予定一覧】
+with tabs[3]:
+    st.write("### 📝 今後の予定")
+    if not df_s.empty:
+        df_s["dt"] = pd.to_datetime(df_s["date"])
+        future = df_s[df_s["dt"].dt.date >= now.date()].sort_values("dt")
+        for _, row in future.iterrows():
+            st.write(f"📅 {row['dt'].strftime('%m/%d')}: {row['content']}")
+
+# 【タブ5: 登録】
+with tabs[4]:
+    st.write(f"### ➕ {sel.month}/{sel.day} に追加")
     mode = st.radio("種類", ["予定", "課題"], horizontal=True)
-    with st.form("add"):
+    with st.form("add", clear_on_submit=True):
         txt = st.text_input("内容")
+        sub = st.selectbox("教科(課題のみ)", list(BELONGINGS.keys())) if mode == "課題" else ""
         if st.form_submit_button("保存して更新"):
             if txt:
-                p = [sel.strftime("%Y-%m-%d"), txt] if mode == "予定" else ["", txt, sel.strftime("%Y-%m-%d"), "FALSE"]
-                requests.post(f"{gas_url}?sheet={'schedules' if mode == '予定' else 'tasks'}", json=p)
+                payload = [sel.strftime("%Y-%m-%d"), txt] if mode == "予定" else [sub, txt, sel.strftime("%Y-%m-%d"), "FALSE"]
+                requests.post(f"{gas_url}?sheet={'schedules' if mode == '予定' else 'tasks'}", json=payload)
+                st.success("保存しました！")
                 st.cache_data.clear()
+                time.sleep(1)
                 st.rerun()
