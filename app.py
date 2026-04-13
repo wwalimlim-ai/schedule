@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import jpholiday
 import calendar
 
-# --- 1. ページ設定（スマホ爆速UI用） ---
+# --- 1. ページ設定 ---
 st.set_page_config(page_title="MyTool", layout="centered")
 
 st.markdown("""
@@ -25,7 +25,7 @@ st.markdown("""
 BELONGINGS = {"現国": ["教科書", "ノート", "電子辞書", "核心漢字", "論理エンジン", "ステップ1.5"],"言語文化": ["教科書", "ノート", "電子辞書", "文法ノート", "グランステップ", "漢文必携"],"地総": ["教科書", "地図帳"], "歴総": ["教科書", "ワークノート"],"数基α": ["教科書I", "ノート", "Focus Gold"],"数基β": ["教科書A", "ノート", "Focus Gold"],"科技α": ["物理基礎", "セミナー", "ノート"], "科技β": ["生物基礎", "リードα", "ノート"],"保健": ["教科書", "図説"], "体育": ["体操服", "ルール本"],"コミュ I": ["Heartening", "LEAP", "Cutting Edge"],"論表": ["EARTHRISE", "Workbook"],"SP I": ["Heartening"],"家庭": ["教科書", "生活学Navi"],"探求基礎": ["課題研究メソッド"],"LT": ["（特になし）"]}
 TIMETABLE = {"月":["科技β","数基α","家庭","地総","科技α","言語文化","論表"],"火":["科技α","音楽","歴総","体育","数基α","言語文化"],"水":["保健","探求基礎","論表","数基β","現国","コミュ I"],"木":["科技β","コミュ I","言語文化","家庭","音楽","数基α","LT"],"金":["地総","体育","数基β","現国","SP I","歴総"]}
 
-# --- 3. GAS通信ロジック（ここを強化しました） ---
+# --- 3. GAS通信ロジック ---
 gas_url = st.secrets.get("GAS_URL")
 
 @st.cache_data(ttl=5)
@@ -34,21 +34,15 @@ def load_data(sheet_name):
         res = requests.get(f"{gas_url}?sheet={sheet_name}", timeout=10)
         data = res.json()
         if not data: return pd.DataFrame()
-        
         df = pd.DataFrame(data)
-        
-        # 列の数に関わらず、必要な列だけを抜き出して名前を付ける
         if sheet_name == "schedules":
-            # 1列目が日付、2列目が内容
             df = df.iloc[:, [0, 1]]
             df.columns = ["date", "content"]
         else:
-            # 1教科, 2内容, 3期限, 4完了
             df = df.iloc[:, [0, 1, 2, 3]]
             df.columns = ["subject", "content", "deadline", "done"]
         return df
     except Exception as e:
-        # エラーが起きたら画面の端に出す（デバッグ用）
         st.sidebar.write(f"Error ({sheet_name}): {e}")
         return pd.DataFrame()
 
@@ -79,13 +73,11 @@ with tabs[0]: # カレンダー
                 d_obj = datetime(now.year, now.month, day).date()
                 d_str = d_obj.strftime("%Y-%m-%d")
                 is_sel = "selected-box" if d_obj == sel else ""
-                # 予定チェック（日付を文字列にして比較）
                 has_ev = not df_s.empty and any(df_s["date"].astype(str).str.contains(d_str))
                 dot = '<div class="has-event-dot"></div>' if has_ev else ""
                 html += f'<a href="/?d={d_str}" target="_self" class="cal-box {is_sel}">{day}{dot}</a>'
     st.markdown(html + '</div>', unsafe_allow_html=True)
     if not df_s.empty:
-        # 今日の予定を表示
         today_evs = df_s[df_s["date"].astype(str).str.contains(sel.strftime("%Y-%m-%d"))]
         for v in today_evs["content"]: st.info(v)
 
@@ -106,13 +98,25 @@ with tabs[2]: # 課題
             st.warning(f"**{row['subject']}**: {row['content']} ({row['deadline']})")
     else: st.success("課題は全部完了！")
 
-with tabs[3]: # 予定一覧
+with tabs[3]: # 【予定一覧：ここを修正！】
     st.write("### 📝 今後の予定")
     if not df_s.empty:
-        df_s["dt"] = pd.to_datetime(df_s["date"], errors='coerce')
-        future = df_s[df_s["dt"].dt.date >= now.date()].sort_values("dt")
-        for _, row in future.iterrows():
-            st.write(f"📅 {row['dt'].strftime('%m/%d')}: {row['content']}")
+        # 日付をコピーして変換を試みる
+        list_df = df_s.copy()
+        # いろんな形式の日付に対応できるように変換
+        list_df["dt"] = pd.to_datetime(list_df["date"], errors='coerce')
+        # エラー（NaT）になった行を消す
+        list_df = list_df.dropna(subset=["dt"])
+        # 今日以降の予定を並び替えて表示
+        future = list_df[list_df["dt"].dt.date >= now.date()].sort_values("dt")
+        
+        if not future.empty:
+            for _, row in future.iterrows():
+                st.write(f"📅 **{row['dt'].strftime('%m/%d')}**: {row['content']}")
+        else:
+            st.write("今日以降の予定はありません")
+    else:
+        st.write("予定データがありません")
 
 with tabs[4]: # 登録
     st.write(f"### ➕ {sel.month}/{sel.day} に追加")
