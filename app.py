@@ -74,6 +74,8 @@ with tabs[0]: # カレンダー
                 d_obj = datetime(now.year, now.month, day).date()
                 d_str = d_obj.strftime("%Y-%m-%d")
                 is_sel = "selected-box" if d_obj == sel else ""
+                # --- これに書き換える ---
+html += f'<a href="/?d={d_str}" target="_self" class="cal-box {is_sel}">{day}</a>'
     st.markdown(html + '</div>', unsafe_allow_html=True)
     if not df_s.empty:
         today_evs = df_s[df_s["date"].astype(str).str.contains(sel.strftime("%Y-%m-%d"))]
