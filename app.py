@@ -43,19 +43,20 @@ def load_data(sheet_name):
             df.columns = ["subject", "content", "deadline", "done"]
         return df
     except Exception as e:
-        st.sidebar.write(f"Error ({sheet_name}): {e}")
         return pd.DataFrame()
 
 df_s = load_data("schedules")
 df_t = load_data("tasks")
 
-# 時間・日付管理
+# 【重要】日本の現在時刻を確実に取得
 JST = timezone(timedelta(hours=+9), 'JST')
 now = datetime.now(JST)
+today_date = now.date()
+
 if "d" in st.query_params:
     st.session_state.selected_date = datetime.strptime(st.query_params["d"], "%Y-%m-%d").date()
 elif 'selected_date' not in st.session_state:
-    st.session_state.selected_date = now.date()
+    st.session_state.selected_date = today_date
 sel = st.session_state.selected_date
 
 # --- 4. メインUI ---
@@ -98,23 +99,24 @@ with tabs[2]: # 課題
             st.warning(f"**{row['subject']}**: {row['content']} ({row['deadline']})")
     else: st.success("課題は全部完了！")
 
-with tabs[3]: # 【予定一覧：ここを修正！】
+with tabs[3]: # 【予定一覧：判定を修正】
     st.write("### 📝 今後の予定")
     if not df_s.empty:
-        # 日付をコピーして変換を試みる
         list_df = df_s.copy()
-        # いろんな形式の日付に対応できるように変換
-        list_df["dt"] = pd.to_datetime(list_df["date"], errors='coerce')
-        # エラー（NaT）になった行を消す
-        list_df = list_df.dropna(subset=["dt"])
-        # 今日以降の予定を並び替えて表示
-        future = list_df[list_df["dt"].dt.date >= now.date()].sort_values("dt")
+        # 日付変換（ダメなら削除）
+        list_df["dt_obj"] = pd.to_datetime(list_df["date"], errors='coerce')
+        list_df = list_df.dropna(subset=["dt_obj"])
+        
+        # 判定：前日の23:59以降のデータをすべて表示（当日の予定が消えるのを防ぐ）
+        yesterday = today_date - timedelta(days=1)
+        future = list_df[list_df["dt_obj"].dt.date > yesterday].sort_values("dt_obj")
         
         if not future.empty:
             for _, row in future.iterrows():
-                st.write(f"📅 **{row['dt'].strftime('%m/%d')}**: {row['content']}")
+                st.write(f"📅 **{row['dt_obj'].strftime('%m/%d')}**: {row['content']}")
         else:
-            st.write("今日以降の予定はありません")
+            st.write("予定が認識できませんでした。")
+            st.write("データ数:", len(df_s)) # デバッグ用
     else:
         st.write("予定データがありません")
 
