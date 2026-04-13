@@ -127,9 +127,4 @@ with tabs[4]: # 登録
                 st.success("保存しました！")
                 st.cache_data.clear()
                 time.sleep(1)
-                st.rerun()"), txt] if mode == "予定" else [sub, txt, sel.strftime("%Y-%m-%d"), "FALSE"]
-                requests.post(f"{gas_url}?sheet={'schedules' if mode == '予定' else 'tasks'}", json=payload)
-                st.success("保存しました！")
-                st.cache_data.clear()
-                time.sleep(1)
                 st.rerun()
