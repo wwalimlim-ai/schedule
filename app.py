@@ -105,17 +105,44 @@ with tabs[2]: # 課題
                 st.cache_data.clear(); st.rerun()
     else: st.success("課題は全部完了！")
 
-with tabs[3]: # 予定一覧
+with tabs[3]: # 【予定一覧：削除ボタン付き】
     st.write("### 📝 今後の予定")
     if not df_s.empty:
         list_df = df_s.copy()
+        # 日付変換
         list_df["dt_obj"] = pd.to_datetime(list_df.iloc[:, 0], errors='coerce', utc=True)
         list_df["dt_obj"] = list_df["dt_obj"].dt.tz_convert('Asia/Tokyo').dt.tz_localize(None)
         list_df = list_df.dropna(subset=["dt_obj"])
-        future = list_df[list_df["dt_obj"] >= datetime(now.year, now.month, now.day)].sort_values("dt_obj")
-        for _, row in future.iterrows():
-            st.write(f"📅 **{row['dt_obj'].strftime('%m/%d')}**: {row.iloc[1]}")
-    else: st.write("予定なし")
+        
+        # 今日以降の予定を抽出
+        today_start = datetime(now.year, now.month, now.day)
+        future = list_df[list_df["dt_obj"] >= today_start].sort_values("dt_obj")
+        
+        if not future.empty:
+            for _, row in future.iterrows():
+                # 横並びにするためにカラムを作成
+                col1, col2 = st.columns([4, 1])
+                
+                # 日付と内容を表示
+                d_disp = row['dt_obj'].strftime('%m/%d')
+                col1.write(f"📅 **{d_disp}**: {row.iloc[1]}")
+                
+                # 削除ボタン（キーが重複しないように日付+内容で設定）
+                if col2.button("❌", key=f"list_del_{row['dt_obj'].strftime('%Y%m%d')}_{row.iloc[1]}"):
+                    # GASに削除リクエストを送信
+                    requests.post(
+                        f"{gas_url}?sheet=schedules&action=delete", 
+                        json=[row['dt_obj'].strftime("%Y-%m-%d"), row.iloc[1]]
+                    )
+                    st.toast(f"削除しました: {row.iloc[1]}")
+                    st.cache_data.clear()
+                    time.sleep(0.5) # 反映待ち
+                    st.rerun()
+                st.divider()
+        else:
+            st.info("今日以降の予定はありません。")
+    else:
+        st.write("予定データがありません。")
 
 with tabs[4]: # 登録
     st.write(f"### ➕ 追加")
