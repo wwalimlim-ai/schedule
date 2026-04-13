@@ -99,36 +99,35 @@ with tabs[2]: # 課題
             st.warning(f"**{row['subject']}**: {row['content']} ({row['deadline']})")
     else: st.success("課題は全部完了！")
 
-with tabs[3]: # 【予定一覧：超・強力変換版】
+with tabs[3]: # 【予定一覧：ISO形式対応版】
     st.write("### 📝 今後の予定")
     if not df_s.empty:
         list_df = df_s.copy()
         
-        # 日付変換を「dayfirst（日を先に読む形式）」なども含めて超柔軟に試みる
-        # どんな変な形でも、とりあえず日付っぽければ変換する設定です
-        list_df["dt_obj"] = pd.to_datetime(list_df.iloc[:, 0], errors='coerce')
+        # 1. ISO形式（TやZが入った形式）を考慮して変換
+        # utc=Trueにすることで、末尾の'Z'を正しく処理します
+        list_df["dt_obj"] = pd.to_datetime(list_df.iloc[:, 0], errors='coerce', utc=True)
         
-        # もし変換に失敗（NaT）した行があれば、今日の日付を仮に入れて消されないようにする（デバッグ用）
-        # list_df["dt_obj"] = list_df["dt_obj"].fillna(pd.Timestamp(today_date))
+        # 2. 日本時間(JST)に変換してから、タイムゾーン情報を消す（比較のため）
+        list_df["dt_obj"] = list_df["dt_obj"].dt.tz_convert('Asia/Tokyo').dt.tz_localize(None)
         
-        # 変換できたものだけを残す
+        # 3. 変換失敗（NaT）を削除
         list_df = list_df.dropna(subset=["dt_obj"])
         
-        # 判定：昨日より後のデータをすべて表示
-        yesterday = today_date - timedelta(days=1)
-        future = list_df[list_df["dt_obj"].dt.date > yesterday].sort_values("dt_obj")
+        # 4. 「今日」も含む判定（今日の0時0分より後のデータを取得）
+        today_start = datetime(now.year, now.month, now.day)
+        future = list_df[list_df["dt_obj"] >= today_start].sort_values("dt_obj")
         
         if not future.empty:
             for _, row in future.iterrows():
-                # 表示も少し丁寧に：変換に成功した日付を使う
+                # 日本語で見やすく表示
                 d_disp = row['dt_obj'].strftime('%m/%d')
                 st.write(f"📅 **{d_disp}**: {row.iloc[1]}")
+                st.divider()
         else:
-            st.warning("有効な日付の予定が見つかりませんでした。")
-            st.write("--- スプレッドシートの生データ確認 ---")
-            st.table(df_s) # 何が入っているか直接表示して確認
+            st.info("今日以降の予定はありません。")
     else:
-        st.write("予定データがありません")
+        st.write("予定データがありません。")
 
 with tabs[4]: # 登録
     st.write(f"### ➕ {sel.month}/{sel.day} に追加")
