@@ -3,7 +3,6 @@ import pandas as pd
 import requests
 import time
 from datetime import datetime, timedelta, timezone
-import jpholiday
 import calendar
 
 # --- 1. ページ設定 ---
@@ -17,7 +16,6 @@ st.markdown("""
     .calendar-wrapper { display: grid; grid-template-columns: repeat(7, 1fr); background: white; border: 1px solid #eee; }
     .cal-box { aspect-ratio: 1/1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-decoration: none; border: 0.5px solid #f8f8f8; color: #444; font-size: 16px; }
     .selected-box { background: #ff4b4b !important; color: white !important; border-radius: 8px; font-weight: bold; }
-    /* 今日の強調表示（枠線をつける） */
     .today-box { border: 2px solid #ff4b4b !important; border-radius: 8px; color: #ff4b4b; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
@@ -36,64 +34,72 @@ def load_data(sheet_name):
         if not data: return pd.DataFrame()
         df = pd.DataFrame(data)
         if sheet_name == "schedules":
-            df = df.iloc[:, [0, 1]]; df.columns = ["date", "content"]
+            # 3列（日付, 内容, 完了）で取得
+            df = df.iloc[:, [0, 1, 2]]
+            df.columns = ["date", "content", "done"]
         else:
-            df = df.iloc[:, [0, 1, 2, 3]]; df.columns = ["subject", "content", "deadline", "done"]
+            # 4列（教科, 内容, 期限, 完了）で取得
+            df = df.iloc[:, [0, 1, 2, 3]]
+            df.columns = ["subject", "content", "deadline", "done"]
         return df
     except: return pd.DataFrame()
 
 df_s = load_data("schedules")
 df_t = load_data("tasks")
 
+# 時間管理
 JST = timezone(timedelta(hours=+9), 'JST')
 now = datetime.now(JST)
 today_date = now.date()
 
+# セッション状態で表示月を管理
+if 'view_year' not in st.session_state: st.session_state.view_year = now.year
+if 'view_month' not in st.session_state: st.session_state.view_month = now.month
+if 'selected_date' not in st.session_state: st.session_state.selected_date = today_date
+
+# URLパラメータがあれば上書き
 if "d" in st.query_params:
     st.session_state.selected_date = datetime.strptime(st.query_params["d"], "%Y-%m-%d").date()
-elif 'selected_date' not in st.session_state:
-    st.session_state.selected_date = today_date
+
 sel = st.session_state.selected_date
 
 # --- 4. メインUI ---
-# タブ名を「時間割」に変更
 tabs = st.tabs(["📅 カレ", "🎒 時間割", "📋 課題", "📝 予定一覧", "➕ 登録"])
 
 with tabs[0]: # カレンダー
-    st.write(f"### 📅 {sel.month}/{sel.day}")
+    # 年月の選択用UI
+    c1, c2 = st.columns(2)
+    view_y = c1.selectbox("年", range(now.year, now.year+2), index=0)
+    view_m = c2.selectbox("月", range(1, 13), index=st.session_state.view_month-1)
+    
     html = '<div class="calendar-wrapper">'
     for d, c in [("日","red"),("月",""),("火",""),("水",""),("木",""),("金",""),("土","blue")]:
         html += f'<div class="cal-box" style="font-size:10px; color:{c};">{d}</div>'
-    for week in calendar.Calendar(firstweekday=6).monthdayscalendar(now.year, now.month):
+    
+    for week in calendar.Calendar(firstweekday=6).monthdayscalendar(view_y, view_m):
         for day in week:
             if day == 0: html += '<div class="cal-box"></div>'
             else:
-                d_obj = datetime(now.year, now.month, day).date()
+                d_obj = datetime(view_y, view_m, day).date()
                 d_str = d_obj.strftime("%Y-%m-%d")
                 is_sel = "selected-box" if d_obj == sel else ""
                 is_today = "today-box" if d_obj == today_date else ""
                 html += f'<a href="/?d={d_str}" target="_self" class="cal-box {is_sel} {is_today}">{day}</a>'
     st.markdown(html + '</div>', unsafe_allow_html=True)
     
-    # --- カレンダー下の表示を修正 ---
-    st.write("") # 少し隙間をあける
-    st.subheader("📌 この日の予定")
-    
+    st.write("")
+    st.subheader(f"📌 {sel.month}/{sel.day} の予定")
     if not df_s.empty:
-        # 選択された日の予定を抽出
-        today_evs = df_s[df_s["date"].astype(str).str.contains(sel.strftime("%Y-%m-%d"))]
-        
-        if not today_evs.empty:
-            for _, row in today_evs.iterrows():
+        # この日の「未完了」の予定だけを表示
+        day_evs = df_s[(df_s["date"].astype(str).str.contains(sel.strftime("%Y-%m-%d"))) & (df_s["done"].astype(str).str.upper() == "FALSE")]
+        if not day_evs.empty:
+            for _, row in day_evs.iterrows():
                 col1, col2 = st.columns([4, 1])
-                # 青い背景(st.info)をやめて、普通のテキストに変更
                 col1.write(f"・ {row['content']}")
-                if col2.button("❌", key=f"del_cal_{row['content']}"):
-                    requests.post(f"{gas_url}?sheet=schedules&action=delete", json=[sel.strftime("%Y-%m-%d"), row["content"]])
-                    st.cache_data.clear()
-                    st.rerun()
-        else:
-            st.write("（予定はありません）")
+                if col2.button("✅", key=f"done_cal_{row['content']}"):
+                    requests.post(f"{gas_url}?sheet=schedules&action=complete", json=["", row["content"]])
+                    st.cache_data.clear(); st.rerun()
+        else: st.write("（予定はありません）")
 
 with tabs[1]: # 時間割
     day_name = ["月","火","水","木","金","土","日"][sel.weekday()]
@@ -110,49 +116,26 @@ with tabs[2]: # 課題
         for _, row in uncompleted.iterrows():
             col1, col2 = st.columns([4, 1])
             col1.warning(f"**{row['subject']}**: {row['content']}")
-            if col2.button("✅", key=f"done_{row['content']}"):
+            if col2.button("✅", key=f"done_task_{row['content']}"):
                 requests.post(f"{gas_url}?sheet=tasks&action=complete", json=["", row["content"]])
                 st.cache_data.clear(); st.rerun()
     else: st.success("課題は全部完了！")
 
-with tabs[3]: # 【予定一覧：削除ボタン付き】
+with tabs[3]: # 予定一覧
     st.write("### 📝 今後の予定")
     if not df_s.empty:
-        list_df = df_s.copy()
-        # 日付変換
-        list_df["dt_obj"] = pd.to_datetime(list_df.iloc[:, 0], errors='coerce', utc=True)
+        list_df = df_s[df_s["done"].astype(str).str.upper() == "FALSE"].copy()
+        list_df["dt_obj"] = pd.to_datetime(list_df["date"], errors='coerce', utc=True)
         list_df["dt_obj"] = list_df["dt_obj"].dt.tz_convert('Asia/Tokyo').dt.tz_localize(None)
         list_df = list_df.dropna(subset=["dt_obj"])
-        
-        # 今日以降の予定を抽出
-        today_start = datetime(now.year, now.month, now.day)
-        future = list_df[list_df["dt_obj"] >= today_start].sort_values("dt_obj")
-        
-        if not future.empty:
-            for _, row in future.iterrows():
-                # 横並びにするためにカラムを作成
-                col1, col2 = st.columns([4, 1])
-                
-                # 日付と内容を表示
-                d_disp = row['dt_obj'].strftime('%m/%d')
-                col1.write(f"📅 **{d_disp}**: {row.iloc[1]}")
-                
-                # 削除ボタン（キーが重複しないように日付+内容で設定）
-                if col2.button("❌", key=f"list_del_{row['dt_obj'].strftime('%Y%m%d')}_{row.iloc[1]}"):
-                    # GASに削除リクエストを送信
-                    requests.post(
-                        f"{gas_url}?sheet=schedules&action=delete", 
-                        json=[row['dt_obj'].strftime("%Y-%m-%d"), row.iloc[1]]
-                    )
-                    st.toast(f"削除しました: {row.iloc[1]}")
-                    st.cache_data.clear()
-                    time.sleep(0.5) # 反映待ち
-                    st.rerun()
-                st.divider()
-        else:
-            st.info("今日以降の予定はありません。")
-    else:
-        st.write("予定データがありません。")
+        future = list_df[list_df["dt_obj"] >= datetime(now.year, now.month, now.day)].sort_values("dt_obj")
+        for _, row in future.iterrows():
+            col1, col2 = st.columns([4, 1])
+            col1.write(f"📅 **{row['dt_obj'].strftime('%m/%d')}**: {row['content']}")
+            if col2.button("✅", key=f"done_list_{row['content']}"):
+                requests.post(f"{gas_url}?sheet=schedules&action=complete", json=["", row["content"]])
+                st.cache_data.clear(); st.rerun()
+    else: st.write("予定なし")
 
 with tabs[4]: # 登録
     st.write(f"### ➕ 追加")
@@ -162,6 +145,7 @@ with tabs[4]: # 登録
         sub = st.selectbox("教科(課題のみ)", list(BELONGINGS.keys())) if mode == "課題" else ""
         if st.form_submit_button("保存して更新"):
             if txt:
-                p = [sel.strftime("%Y-%m-%d"), txt] if mode == "予定" else [sub, txt, sel.strftime("%Y-%m-%d"), "FALSE"]
+                # 予定は3列（日付, 内容, FALSE）、課題は4列で送信
+                p = [sel.strftime("%Y-%m-%d"), txt, "FALSE"] if mode == "予定" else [sub, txt, sel.strftime("%Y-%m-%d"), "FALSE"]
                 requests.post(f"{gas_url}?sheet={'schedules' if mode == '予定' else 'tasks'}", json=p)
                 st.cache_data.clear(); time.sleep(1); st.rerun()
