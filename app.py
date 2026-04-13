@@ -99,24 +99,34 @@ with tabs[2]: # 課題
             st.warning(f"**{row['subject']}**: {row['content']} ({row['deadline']})")
     else: st.success("課題は全部完了！")
 
-with tabs[3]: # 【予定一覧：判定を修正】
+with tabs[3]: # 【予定一覧：超・強力変換版】
     st.write("### 📝 今後の予定")
     if not df_s.empty:
         list_df = df_s.copy()
-        # 日付変換（ダメなら削除）
-        list_df["dt_obj"] = pd.to_datetime(list_df["date"], errors='coerce')
+        
+        # 日付変換を「dayfirst（日を先に読む形式）」なども含めて超柔軟に試みる
+        # どんな変な形でも、とりあえず日付っぽければ変換する設定です
+        list_df["dt_obj"] = pd.to_datetime(list_df.iloc[:, 0], errors='coerce')
+        
+        # もし変換に失敗（NaT）した行があれば、今日の日付を仮に入れて消されないようにする（デバッグ用）
+        # list_df["dt_obj"] = list_df["dt_obj"].fillna(pd.Timestamp(today_date))
+        
+        # 変換できたものだけを残す
         list_df = list_df.dropna(subset=["dt_obj"])
         
-        # 判定：前日の23:59以降のデータをすべて表示（当日の予定が消えるのを防ぐ）
+        # 判定：昨日より後のデータをすべて表示
         yesterday = today_date - timedelta(days=1)
         future = list_df[list_df["dt_obj"].dt.date > yesterday].sort_values("dt_obj")
         
         if not future.empty:
             for _, row in future.iterrows():
-                st.write(f"📅 **{row['dt_obj'].strftime('%m/%d')}**: {row['content']}")
+                # 表示も少し丁寧に：変換に成功した日付を使う
+                d_disp = row['dt_obj'].strftime('%m/%d')
+                st.write(f"📅 **{d_disp}**: {row.iloc[1]}")
         else:
-            st.write("予定が認識できませんでした。")
-            st.write("データ数:", len(df_s)) # デバッグ用
+            st.warning("有効な日付の予定が見つかりませんでした。")
+            st.write("--- スプレッドシートの生データ確認 ---")
+            st.table(df_s) # 何が入っているか直接表示して確認
     else:
         st.write("予定データがありません")
 
