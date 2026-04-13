@@ -77,8 +77,13 @@ sel = st.session_state.selected_date
 tabs = st.tabs(["📅 カレ", "🎒 時間割", "📋 課題", "📝 予定一覧", "➕ 登録"])
 
 with tabs[0]: # カレンダー
+    # 年月の選択用UI
     c1, c2 = st.columns(2)
-    view_y = c1.selectbox("年", range(now.year, now.year+2), index=0)
+    
+    # 【ここを修正！】現在の年から前後5年分を自動でリストにする
+    year_options = list(range(now.year - 2, now.year + 6)) 
+    view_y = c1.selectbox("年", year_options, index=year_options.index(now.year))
+    
     view_m = c2.selectbox("月", range(1, 13), index=st.session_state.view_month-1)
     
     html = '<div class="calendar-wrapper">'
