@@ -67,19 +67,25 @@ with tabs[0]: # カレンダー
     html = '<div class="calendar-wrapper">'
     for d, c in [("日","red"),("月",""),("火",""),("水",""),("木",""),("金",""),("土","blue")]:
         html += f'<div class="cal-box" style="font-size:10px; color:{c};">{d}</div>'
+    
     for week in calendar.Calendar(firstweekday=6).monthdayscalendar(now.year, now.month):
         for day in week:
-            if day == 0: html += '<div class="cal-box"></div>'
+            if day == 0:
+                html += '<div class="cal-box"></div>'
             else:
                 d_obj = datetime(now.year, now.month, day).date()
                 d_str = d_obj.strftime("%Y-%m-%d")
                 is_sel = "selected-box" if d_obj == sel else ""
-                # --- これに書き換える ---
-html += f'<a href="/?d={d_str}" target="_self" class="cal-box {is_sel}">{day}</a>'
+                # ドットの処理を消して、スッキリさせた1行
+                html += f'<a href="/?d={d_str}" target="_self" class="cal-box {is_sel}">{day}</a>'
+    
+    # ここが79行目付近：上の行（html += ...）と左端を揃える
     st.markdown(html + '</div>', unsafe_allow_html=True)
+    
     if not df_s.empty:
         today_evs = df_s[df_s["date"].astype(str).str.contains(sel.strftime("%Y-%m-%d"))]
-        for v in today_evs["content"]: st.info(v)
+        for v in today_evs["content"]:
+            st.info(v)
 
 with tabs[1]: # 持ち物
     day_name = ["月","火","水","木","金","土","日"][sel.weekday()]
