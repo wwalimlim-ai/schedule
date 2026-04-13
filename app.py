@@ -71,19 +71,29 @@ with tabs[0]: # カレンダー
                 d_obj = datetime(now.year, now.month, day).date()
                 d_str = d_obj.strftime("%Y-%m-%d")
                 is_sel = "selected-box" if d_obj == sel else ""
-                # 今日の日付に特別なクラスを付与
                 is_today = "today-box" if d_obj == today_date else ""
                 html += f'<a href="/?d={d_str}" target="_self" class="cal-box {is_sel} {is_today}">{day}</a>'
     st.markdown(html + '</div>', unsafe_allow_html=True)
     
+    # --- カレンダー下の表示を修正 ---
+    st.write("") # 少し隙間をあける
+    st.subheader("📌 この日の予定")
+    
     if not df_s.empty:
+        # 選択された日の予定を抽出
         today_evs = df_s[df_s["date"].astype(str).str.contains(sel.strftime("%Y-%m-%d"))]
-        for _, row in today_evs.iterrows():
-            col1, col2 = st.columns([4, 1])
-            col1.info(row["content"])
-            if col2.button("❌", key=f"del_{row['content']}"):
-                requests.post(f"{gas_url}?sheet=schedules&action=delete", json=[sel.strftime("%Y-%m-%d"), row["content"]])
-                st.cache_data.clear(); st.rerun()
+        
+        if not today_evs.empty:
+            for _, row in today_evs.iterrows():
+                col1, col2 = st.columns([4, 1])
+                # 青い背景(st.info)をやめて、普通のテキストに変更
+                col1.write(f"・ {row['content']}")
+                if col2.button("❌", key=f"del_cal_{row['content']}"):
+                    requests.post(f"{gas_url}?sheet=schedules&action=delete", json=[sel.strftime("%Y-%m-%d"), row["content"]])
+                    st.cache_data.clear()
+                    st.rerun()
+        else:
+            st.write("（予定はありません）")
 
 with tabs[1]: # 時間割
     day_name = ["月","火","水","木","金","土","日"][sel.weekday()]
